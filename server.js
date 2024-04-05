@@ -19,6 +19,22 @@ const storage = multer.diskStorage({
   },
 });
 
+// Skapa en Multer-instans med bara ett fält, "image"
+const upload = multer({
+  storage: storage,
+  fileFilter: function (req, file, cb) {
+    // Array med tillåtna filtyper
+    const allowedMimes = ["image/jpeg"];
+
+    // Kontrollera om filtypen är tillåten
+    if (allowedMimes.includes(file.mimetype)) {
+      cb(null, true); // Acceptera filen
+    } else {
+      cb(new Error("Invalid file type. Only JPEG files are allowed."), false); // Avvisa filen
+    }
+  },
+}).single("image"); // Ange 'image' som det enda tillåtna fältet för uppladdning av filer
+
 // Statiska filer
 app.use(express.static("public"));
 
@@ -38,7 +54,7 @@ const db = new sqlite3.Database("db/news.db", (err) => {
 });
 
 app.get("/api", (req, res) => {
-  res.send("Hello World!");
+  res.json({ message: "Welcome to the news API" });
 });
 
 // Hämta alla nyheter
@@ -78,24 +94,36 @@ app.get("/api/news/:id", (req, res) => {
 });
 
 // Lägg till en nyhet
-app.post(
-  "/api/news",
-  multer({ storage: storage }).single("image"),
-  (req, res) => {
+app.post("/api/news", (req, res) => {
+  upload(req, res, function (err) {
+    if (err) {
+      return res.status(400).json({ error: err.message });
+    }
     const { title, content } = req.body;
 
-    // Kontrolla att bild finns i request
-    if (!req.file) {
-      res.status(400).json({ error: "Image is required" });
-      return;
-    }
-    const image = req.file.filename;
-
     // Validera input
-    if (!title || !content) {
-      res.status(400).json({ error: "All fields are required" });
-      return;
+    let errors = [];
+
+    // Kontrollera att bild finns i request
+    if (!req.file) {
+      errors.push("No image uploaded");
     }
+
+    // Kontrollera att titel och content finns
+    if (!title) {
+      errors.push("title is missing");
+    }
+    if (!content) {
+      errors.push("content is missing");
+    }
+
+    // Om det finns felmeddelanden
+    if (errors.length > 0) {
+      return res.status(400).json({ errors });
+    }
+
+    // Filnamn för bilden
+    const image = req.file.filename;
 
     // Datum för lagring
     const date_posted = new Date().toISOString();
@@ -105,14 +133,13 @@ app.post(
       [title, content, image, date_posted],
       (err) => {
         if (err) {
-          res.status(400).json({ error: err.message });
-          return;
+          return res.status(400).json({ error: err.message });
         }
         res.json({ message: "News added successfully" });
       }
     );
-  }
-);
+  });
+});
 
 // Starta server
 app.listen(port, () => {
